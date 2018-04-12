@@ -1,0 +1,94 @@
+#include "player_list.h"
+
+PlayersList * players_list_new() {
+
+    PlayersList * ris = malloc(sizeof(PlayersList));
+    ris->first = NULL;
+    ris->last = NULL;
+    ris->n = 0;
+
+}
+
+Player * player_list_insert(PlayersList * p, int id, Image * i) {
+
+    if(p == NULL) return NULL;
+    Player * pl = malloc(sizeof(Player));
+    pl->id = id;
+    pl->texture = i;
+    pl->next = NULL;
+
+    if(p->n == 0) {
+        p->first = pl;
+        p->last = pl;
+    }
+    else {
+        p->last->next = pl;
+        p->last = pl;
+    }
+    p->n = p->n + 1;
+
+    return pl;
+
+}
+
+Player * player_list_find(PlayersList * p, int id) {
+
+    if(p == NULL) return NULL;
+    Player * pl = p->first;
+    while(pl != NULL && pl->id != id) pl = pl->next;
+    if(pl == NULL) return NULL;
+    return pl;
+
+}
+
+void player_list_delete(PlayersList * p, int id) {
+
+    if(p == NULL) return;
+    Player ** pl = &(p->first);
+    while(*pl != NULL && (*pl)->next != NULL && (*pl)->next->id != id) pl = &((*pl)->next);
+    if((*pl)->next == NULL) return;
+
+    Player * to_delete = (*pl)->next;
+    (*pl)->next = (*pl)->next->next;
+    free(to_delete);
+    return;
+
+}
+
+void player_list_print(PlayersList * p) {
+
+    if(p->n == 0) printf("No Players\n");
+    else {
+        Player * pl = p->first;
+        while(pl != NULL) {
+            printf("Player %d in game\n", pl->id);
+            pl = pl->next;
+        }
+    }
+
+    printf("\n");
+    return;
+
+}
+
+void player_list_free_aux(Player * p) {
+
+    if(p->next == NULL) {
+        free(p);
+        return;
+    }
+    player_list_free_aux(p->next);
+    free(p);
+    return;
+}
+
+void player_list_free(PlayersList * p) {
+
+    if(p == NULL) return;
+    player_list_free_aux(p->first);
+    free(p);
+    return;
+
+}
+
+
