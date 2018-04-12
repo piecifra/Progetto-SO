@@ -51,6 +51,7 @@ void player_list_delete(PlayersList * p, int id) {
     Player * to_delete = (*pl)->next;
     (*pl)->next = (*pl)->next->next;
     free(to_delete);
+    p->n = p->n - 1;
     return;
 
 }
