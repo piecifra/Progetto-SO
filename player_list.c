@@ -1,3 +1,6 @@
+#include <string.h>
+#include <stdlib.h>
+#include <stdio.h>
 #include "player_list.h"
 
 PlayersList * players_list_new() {

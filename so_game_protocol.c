@@ -3,6 +3,8 @@
 #include <stdio.h>
 #include "so_game_protocol.h"
 
+
+
 // converts a packet into a (preallocated) buffer
 int Packet_serialize(char* dest, const PacketHeader* h){
   char* dest_end=dest;
@@ -26,7 +28,7 @@ int Packet_serialize(char* dest, const PacketHeader* h){
       // the image is invalid, we need to read it from the buffer
       printf("forward address\n");
       dest_end+=sizeof(ImagePacket);
-      printf("image serialization");
+      printf("image serialization\n");
       dest_end+=Image_serialize(img_packet->image, dest_end, 1024*1024);
       printf("end\n");
       break;
@@ -77,7 +79,7 @@ PacketHeader* Packet_deserialize(const char* buffer, int size){
       size-=sizeof(ImagePacket);
       buffer+=sizeof(ImagePacket);
       img_packet->image=Image_deserialize(buffer, size);
-      if (! img_packet->image){
+      if (!img_packet->image){
         free(img_packet);
         return 0;
       }
@@ -94,7 +96,7 @@ PacketHeader* Packet_deserialize(const char* buffer, int size){
       return (PacketHeader*) world_packet;
     }
     case VehicleUpdate:
-    { 
+    {
       VehicleUpdatePacket* vehicle_packet=(VehicleUpdatePacket*) malloc(sizeof(VehicleUpdatePacket));
       memcpy(vehicle_packet, buffer, sizeof(VehicleUpdatePacket));
       return(PacketHeader*) vehicle_packet;

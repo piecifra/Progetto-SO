@@ -1,3 +1,6 @@
+#pragma once
+#include "image.h"
+
 typedef struct Player {
     int id;
     Image * texture;
