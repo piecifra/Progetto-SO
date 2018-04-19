@@ -1,8 +1,13 @@
 #pragma once
 #include "image.h"
+#include "common.h"
 
 typedef struct Player {
     int id;
+    char new[MAX_PLAYERS];
+    int x;
+    int y;
+    float z;
     Image * texture;
     struct Player * next;
 } Player;

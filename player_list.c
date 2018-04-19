@@ -19,6 +19,10 @@ Player * player_list_insert(PlayersList * p, int id, Image * i) {
     pl->id = id;
     pl->texture = i;
     pl->next = NULL;
+    memset(pl->new, 1, MAX_PLAYERS);
+    pl->x = 0;
+    pl->y = 0;
+    pl->z = 0;
 
     if(p->n == 0) {
         p->first = pl;
@@ -69,8 +73,6 @@ void player_list_print(PlayersList * p) {
             pl = pl->next;
         }
     }
-
-    printf("\n");
     return;
 
 }
