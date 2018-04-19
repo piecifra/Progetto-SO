@@ -35,6 +35,7 @@ int Packet_serialize(char* dest, const PacketHeader* h){
     }
     case WorldUpdate:
     {
+
       const WorldUpdatePacket* world_packet=(WorldUpdatePacket*) h;
       memcpy(dest, world_packet, sizeof(WorldUpdatePacket));
       dest_end+=sizeof(WorldUpdatePacket);
