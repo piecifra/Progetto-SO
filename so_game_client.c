@@ -11,82 +11,24 @@
 #include "vehicle.h"
 #include "world_viewer.h"
 
-int window;
-WorldViewer viewer;
 World world;
 Vehicle* vehicle; // The vehicle
 
-void keyPressed(unsigned char key, int x, int y)
-{
-  switch(key){
-  case 27:
-    glutDestroyWindow(window);
-    exit(0);
-  case ' ':
-    vehicle->translational_force_update = 0;
-    vehicle->rotational_force_update = 0;
-    break;
-  case '+':
-    viewer.zoom *= 1.1f;
-    break;
-  case '-':
-    viewer.zoom /= 1.1f;
-    break;
-  case '1':
-    viewer.view_type = Inside;
-    break;
-  case '2':
-    viewer.view_type = Outside;
-    break;
-  case '3':
-    viewer.view_type = Global;
-    break;
+typedef struct {
+  volatile int run;
+  World* world;
+} UpdaterArgs;
+
+
+void* updater_thread(void* args_){
+  UpdaterArgs* args=(UpdaterArgs*)args_;
+  while(args->run){
+    World_update(args->world);
+    usleep(30000);
   }
+  return 0;
 }
 
-
-void specialInput(int key, int x, int y) {
-  switch(key){
-  case GLUT_KEY_UP:
-    vehicle->translational_force_update += 0.1;
-    break;
-  case GLUT_KEY_DOWN:
-    vehicle->translational_force_update -= 0.1;
-    break;
-  case GLUT_KEY_LEFT:
-    vehicle->rotational_force_update += 0.1;
-    break;
-  case GLUT_KEY_RIGHT:
-    vehicle->rotational_force_update -= 0.1;
-    break;
-  case GLUT_KEY_PAGE_UP:
-    viewer.camera_z+=0.1;
-    break;
-  case GLUT_KEY_PAGE_DOWN:
-    viewer.camera_z-=0.1;
-    break;
-  }
-}
-
-
-void display(void) {
-  WorldViewer_draw(&viewer);
-}
-
-
-void reshape(int width, int height) {
-  WorldViewer_reshapeViewport(&viewer, width, height);
-}
-
-void idle(void) {
-  World_update(&world);
-  usleep(30000);
-  glutPostRedisplay();
-  
-  // decay the commands
-  vehicle->translational_force_update *= 0.999;
-  vehicle->rotational_force_update *= 0.7;
-}
 
 int main(int argc, char **argv) {
   if (argc<3) {
@@ -101,7 +43,7 @@ int main(int argc, char **argv) {
   } else {
     printf("Fail! \n");
   }
-  
+
   Image* my_texture_for_server;
   // todo: connect to the server
   //   -get ad id
@@ -133,5 +75,5 @@ int main(int argc, char **argv) {
 
   // cleanup
   World_destroy(&world);
-  return 0;             
+  return 0;
 }

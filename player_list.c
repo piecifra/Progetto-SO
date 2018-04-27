@@ -20,9 +20,9 @@ Player * player_list_insert(PlayersList * p, int id, Image * i) {
     pl->texture = i;
     pl->next = NULL;
     memset(pl->new, 1, MAX_PLAYERS);
-    pl->x = 0;
-    pl->y = 0;
-    pl->z = 0;
+    pl->position.x = 0;
+    pl->position.y = 0;
+    pl->position.theta = 0;
 
     if(p->n == 0) {
         p->first = pl;

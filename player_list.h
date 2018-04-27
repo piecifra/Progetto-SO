@@ -1,14 +1,20 @@
 #pragma once
 #include "image.h"
 #include "common.h"
+#include <netinet/in.h>
+
+typedef struct Position {
+    float x;
+    float y;
+    float theta;
+} Position;
 
 typedef struct Player {
     int id;
     char new[MAX_PLAYERS];
-    int x;
-    int y;
-    float z;
+    Position position;
     Image * texture;
+    struct sockaddr_in client_addr_udp;
     struct Player * next;
 } Player;
 
