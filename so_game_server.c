@@ -26,8 +26,31 @@
 
 #include "so_game_protocol.h"
 #include "player_list.h"
+#include "network_func.h"
 
 int id_counter = 1;
+World w;
+
+
+
+
+typedef struct {
+  volatile int run;
+  World* w;
+} UpdaterArgs;
+
+// this is the updater threas that takes care of refreshing the agent position
+// in your client it is not needed, but you will
+// have to copy the x,y,theta fields from the world update packet
+// to the vehicles having the corrsponding id
+void* updater_thread(void* args_){
+  UpdaterArgs* args=(UpdaterArgs*)args_;
+  while(args->run){
+    World_update(args->w);
+    usleep(30000);
+  }
+  return 0;
+}
 
 typedef struct {
 
@@ -89,28 +112,31 @@ void * player_handler(void * arg) {
         ERROR_HELPER(-1, "Cannot write to socket");
     }
     //free(idPAcket)?
+    printf("Id sended %d\n", id);
+
 
 
 
     //Recive texture from client
-    while ((recv_bytes = recv(socket_desc, buf, sizeof(buf), 0)) < 0)
-    {
-        if (errno == EINTR)
-            continue;
-        ERROR_HELPER(-1, "Cannot read from socket");
-    }
-    printf("Recived texture from player %d, size %d\n", id, recv_bytes);
-    ImagePacket * imagePacket = (ImagePacket *) Packet_deserialize(buf, recv_bytes);
-    Image * playerTexture = imagePacket->image;
+    recv_packet_TCP(socket_desc, buf);
+    printf("Recived texture from player %d, size %d, packetsize %d\n", id, recv_bytes,((PacketHeader *) buf)->size);
+    ImagePacket * packetTexture = (ImagePacket *) Packet_deserialize(buf, ((PacketHeader *) buf)->size);
+    Image * playerTexture = packetTexture->image;
+
+    char file[64];
+    sprintf(file, "texture of %d", packetTexture->id);
+    Image_save(playerTexture, file);
 
 
     //Insert player in list
     player_list_insert(players, id, playerTexture);
-
+    Vehicle * vehicle=(Vehicle*) malloc(sizeof(Vehicle));
+    Vehicle_init(vehicle, &w, id, playerTexture);
+    World_addVehicle(&w, vehicle);
 
     //Send SurfaceTexture to Client
     packetHeader.type = PostTexture;
-    imagePacket = malloc(sizeof(ImagePacket));
+    ImagePacket * imagePacket = malloc(sizeof(ImagePacket));
     imagePacket->header = packetHeader;
     imagePacket->id = 0;
     imagePacket->image = surfaceTexture;
@@ -121,7 +147,7 @@ void * player_handler(void * arg) {
     }
     printf("SurfaceTexture sent to id %d, bytes: %d\n", id, ret);
 
-    usleep(3000000);
+
 
     //Send ElevationTexture to Client
     packetHeader.type = PostElevation;
@@ -134,10 +160,10 @@ void * player_handler(void * arg) {
         if (errno == EINTR) continue;
         ERROR_HELPER(-1, "Cannot write to socket");
     }
-    printf("ElevationTexture sent to id %d, bytes: %d\n", id);
+    printf("ElevationTexture sent to id %d, bytes: %d\n", id, ret);
     free(imagePacket);
 
-    usleep(3000000);
+    //usleep(3000000);
 
 
     Player * player = players->first;
@@ -176,37 +202,16 @@ void * player_handler(void * arg) {
                     if(errno == EINTR) continue;
                     ERROR_HELPER(ret, "Cannot send");
                 }
-                printf("%d bytes sent to %d, new player added\n", ret, id);
-                usleep(1000000);
+                printf("%d bytes sent to %d, new player added %d\n", ret, id, p->id);
                 free(imagePacket);
 
             }
-
-
-            updates[i].id = p->id;
-            updates[i].x = p->x;
-            updates[i].y = p->y;
-            updates[i++].theta = p->z;
             p = p->next;
 
         }
 
-        packetHeader.type = WorldUpdate;
-        WorldUpdatePacket * worldUpdatePacket = malloc(sizeof(WorldUpdatePacket));
-        worldUpdatePacket->header = packetHeader;
-        worldUpdatePacket->num_vehicles = players->n;
-        worldUpdatePacket->updates = updates;
-        buf_size = Packet_serialize(buf, &(worldUpdatePacket->header));
-        ret = sendto(socket_udp, buf, buf_size, 0, (struct sockaddr*) client_addr, sizeof(*client_addr));
-        printf("%d bytes sent to %d, packet update, scoket: %d \n", ret, id, socket_udp);
-        char client_ip[INET_ADDRSTRLEN];
-        inet_ntop(AF_INET, &(client_addr->sin_addr), client_ip, INET_ADDRSTRLEN);
-        uint16_t client_port = ntohs(client_addr->sin_port); // port number is an unsigned short
-        printf("Sent update to %s on %d, socket: %d\n", client_ip, client_port, socket_udp);
-        ERROR_HELPER(ret, "Cannot send\n");
-        printf("---------------\n");
-        free(updates);
         usleep(1000000);
+
 
     }
 
@@ -220,29 +225,103 @@ void * player_handler(void * arg) {
 
 }
 
+void * update_sender_thread_func(void * args) {
+
+    player_handler_args * arg = (player_handler_args *) args;
+    int socket_udp = arg->socket_udp;
+    PlayersList * players = arg->Players;
+    char buf[1000000];
+    PacketHeader packetHeader;
+    usleep(10000000);
+    printf("Start sender...\n");
+    int ret, buf_size;
+    while(1) {
+
+        Player * p = players->first;
+        ClientUpdate * updates = malloc(sizeof(ClientUpdate)*(players->n));
+        int i = 0;
+
+        while(p != NULL) {
+
+            Vehicle * v = World_getVehicle(&w, p->id);
+
+            updates[i].id = p->id;
+            updates[i].x = v->x;
+            updates[i].y = v->y;
+            updates[i++].theta = v->theta;
+
+            p = p->next;
+
+        }
+
+        p = players->first;
+        packetHeader.type = WorldUpdate;
+        WorldUpdatePacket * worldUpdatePacket = malloc(sizeof(WorldUpdatePacket));
+        worldUpdatePacket->header = packetHeader;
+        worldUpdatePacket->num_vehicles = players->n;
+        worldUpdatePacket->updates = updates;
+        buf_size = Packet_serialize(buf, &(worldUpdatePacket->header));
+
+        while(p != NULL) {
+
+
+            struct sockaddr_in client_addr = p->client_addr_udp;
+            //printf("sending one update\n");
+            ret = sendto(socket_udp, buf, buf_size, 0, (struct sockaddr*) &client_addr, sizeof(client_addr));
+            //printf("%d bytes sent, packet update, scoket: %d \n", ret, socket_udp);
+            char client_ip[INET_ADDRSTRLEN];
+            inet_ntop(AF_INET, &(client_addr.sin_addr), client_ip, INET_ADDRSTRLEN);
+            uint16_t client_port = ntohs(client_addr.sin_port); // port number is an unsigned short
+            //printf("Sent update to %d on %d, socket: %d\n", p->id, client_port, socket_udp);
+
+
+            p = p->next;
+
+        }
+
+        usleep(30000);
+
+    }
+
+
+
+}
+
+
 void * update_reciver_thread_func(void * args) {
 
     printf("ok\n");
+    //player_handler_args * arg = (player_handler_args *) args;
+    //struct sockaddr_in * client_addr = (struct sockaddr_in *) arg->client_addr;
     player_handler_args * arg = (player_handler_args *) args;
-    struct sockaddr_in * client_addr = (struct sockaddr_in *) arg->client_addr;
     int socket_udp = arg->socket_udp;
+    PlayersList * players = arg->Players;
     int slen, ret;
+    struct sockaddr_in client_addr_udp;
     char buf[1000000];
-    char client_ip[INET_ADDRSTRLEN];
-    inet_ntop(AF_INET, &(client_addr->sin_addr), client_ip, INET_ADDRSTRLEN);
-    uint16_t client_port = ntohs(client_addr->sin_port); // port number is an unsigned short
-    printf("Start reciving to %s on %d from sock %d\n", client_ip, client_port, socket_udp);
+    usleep(3000000);
+    printf("ok\n");
     while(1) {
 
-        ret = recvfrom(socket_udp, buf, sizeof(buf), 0, (struct sockaddr *) client_addr, &slen);
+        ret = recvfrom(socket_udp, buf, sizeof(buf), 0, (struct sockaddr *) &client_addr_udp, &slen);
         ERROR_HELPER(ret, "Error recive");
         VehicleUpdatePacket * vehicleUpdatePacket = Packet_deserialize(buf, ret);
-        printf("Recived packet from %d, bytes: %d\n", vehicleUpdatePacket->id, ret);
+        //printf("Recived packet from %d, bytes: %d\n", vehicleUpdatePacket->id, ret);
+        Player * p = player_list_find(players, vehicleUpdatePacket->id);
+        //printf("p: %d, tf: %f, rf: %f\n", vehicleUpdatePacket->id, vehicleUpdatePacket->translational_force, vehicleUpdatePacket->rotational_force);
+        Vehicle * v = World_getVehicle(&w, p->id);
+        //printf("ok\n");
+        if(v != 0) {
+            v->translational_force_update = vehicleUpdatePacket->translational_force;
+            v->rotational_force_update = vehicleUpdatePacket->rotational_force;
+        }
+        //printf("ok\n");
+        p->client_addr_udp = client_addr_udp;
+        //printf("Address saved\n");
 
     }
 
 }
-
 
 
 int main(int argc, char **argv) {
@@ -259,6 +338,16 @@ int main(int argc, char **argv) {
 
     int ret;
     int socket_desc, client_desc;
+
+    World_init(&w, surfaceTexture, elevationTexture,  0.5, 0.5, 0.5);
+    pthread_t runner_thread;
+    pthread_attr_t runner_attrs;
+    UpdaterArgs runner_args={
+    .run=1,
+    .w=&w
+    };
+    pthread_attr_init(&runner_attrs);
+    pthread_create(&runner_thread, &runner_attrs, updater_thread, &runner_args);
 
     // some fields are required to be filled with 0
     struct sockaddr_in server_addr = {0};
@@ -287,8 +376,36 @@ int main(int argc, char **argv) {
     struct sockaddr_in *client_addr = calloc(1, sizeof(struct sockaddr_in));
 
 
-    PlayersList * players = players_list_new();
 
+    PlayersList * players = players_list_new();
+    int udp_socket = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+    struct sockaddr_in si_me = { 0 };
+    ERROR_HELPER(udp_socket, "Cannot open udp socket");
+    memset((char *) &si_me, 0, sizeof(si_me));
+    si_me.sin_family = AF_INET;
+    si_me.sin_port = htons(SERVER_PORT);
+    si_me.sin_addr.s_addr = INADDR_ANY;
+
+    int reuseaddr_opt_udp = 1;
+    ret = setsockopt(udp_socket, SOL_SOCKET, SO_REUSEADDR, &reuseaddr_opt_udp, sizeof(reuseaddr_opt_udp));
+
+    ret = bind(udp_socket, &si_me, sizeof(si_me));
+    ERROR_HELPER(ret, "Error bind");
+    printf("Opened udp socket %d\n", udp_socket);
+
+    player_handler_args * urt_arg = malloc(sizeof(player_handler_args));
+    urt_arg->socket_udp = udp_socket;
+    urt_arg->Players = players;
+    pthread_t urt;
+    pthread_create(&urt, NULL, update_reciver_thread_func, (void *) urt_arg);
+    pthread_detach(urt);
+
+    player_handler_args * ust_arg = malloc(sizeof(player_handler_args));
+    ust_arg->socket_udp = udp_socket;
+    ust_arg->Players = players;
+    pthread_t ust;
+    pthread_create(&ust, NULL, update_sender_thread_func, (void *) ust_arg);
+    pthread_detach(ust);
 
 
     //Start Listening for new players
@@ -298,25 +415,26 @@ int main(int argc, char **argv) {
         if (client_desc == -1 && errno == EINTR) continue;
 
         pthread_t session_init_thread, update_reciver_thread;
-        struct sockaddr_in * si_me =  malloc(sizeof(struct sockaddr_in));
+        //struct sockaddr_in * si_me =  malloc(sizeof(struct sockaddr_in));
 
         //Put arguments for the new thread into a buffer
         player_handler_args * sit_arg = malloc(sizeof(player_handler_args));
-        player_handler_args * urt_arg = malloc(sizeof(player_handler_args));
+       // player_handler_args * urt_arg = malloc(sizeof(player_handler_args));
 
 
+        /*
         //Prepare UDP socket
         int udp_socket = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
         ERROR_HELPER(udp_socket, "Cannot open udp socket");
         memset((char *) si_me, 0, sizeof(*si_me));
         si_me->sin_family = AF_INET;
-        si_me->sin_port = htons(SERVER_PORT + id_counter);
+        si_me->sin_port = htons(SERVER_PORT);
         si_me->sin_addr.s_addr = htonl(INADDR_ANY);
 
         ret = bind(udp_socket, si_me, sizeof(*si_me));
         ERROR_HELPER(ret, "Error bind");
         printf("Opened udp socket %d\n", udp_socket);
-
+        */
         //sit thread arguments
         size_t peeraddrlen;
         struct sockaddr_in * si_other = malloc(sizeof(struct sockaddr_in));
@@ -329,22 +447,19 @@ int main(int argc, char **argv) {
         sit_arg->SurfaceTexture = surfaceTexture;
         sit_arg->ElevationTexture = elevationTexture;
         sit_arg->Players = players;
-        sit_arg->id = id_counter;
+        sit_arg->id = id_counter++;
 
+        /*
         urt_arg->socket_udp = udp_socket;
         urt_arg->client_addr = client_addr;
         urt_arg->client_addr_udp = client_addr_udp;
         urt_arg->Players = players;
         urt_arg->id = id_counter++;
-
+        */
 
         ret = pthread_create(&session_init_thread, NULL, player_handler, (void *)sit_arg);
         ret = pthread_detach(session_init_thread);
 
-        ret = pthread_create(&update_reciver_thread, NULL, update_reciver_thread_func, (void *)urt_arg);
-        PTHREAD_ERROR_HELPER(ret, "Error create urt");
-        ret = pthread_detach(update_reciver_thread);
-        PTHREAD_ERROR_HELPER(ret, "Error detach urt");
 
         client_addr = calloc(1, sizeof(struct sockaddr_in));
 
