@@ -7,7 +7,6 @@ PlayersList * players_list_new() {
 
     PlayersList * ris = malloc(sizeof(PlayersList));
     ris->first = NULL;
-    ris->last = NULL;
     ris->n = 0;
 
 }
@@ -26,11 +25,13 @@ Player * player_list_insert(PlayersList * p, int id, Image * i) {
 
     if(p->n == 0) {
         p->first = pl;
-        p->last = pl;
+        //p->last = pl;
     }
     else {
-        p->last->next = pl;
-        p->last = pl;
+        Player * aux = p->first;
+
+        while(aux->next != NULL) aux = aux->next;
+        aux->next = pl;
     }
     p->n = p->n + 1;
 
@@ -77,6 +78,7 @@ void player_list_print(PlayersList * p) {
     if(p->n == 0) printf("No Players\n");
     else {
         printf("Players: %d\n", p->n);
+        printf("First: %d\n", p->first->id);
         Player * pl = p->first;
         while(pl != NULL) {
             printf("Player %d in game\n", pl->id);

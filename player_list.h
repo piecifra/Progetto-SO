@@ -21,7 +21,6 @@ typedef struct Player {
 
 typedef struct {
     Player * first;
-    Player * last;
     int n;
 } PlayersList;
 
