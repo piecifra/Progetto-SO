@@ -123,6 +123,7 @@ void * player_handler(void * arg) {
 
     //Insert player in list
     player_list_insert(players, id, playerTexture);
+    player_list_print(players);
     Vehicle * vehicle=(Vehicle*) malloc(sizeof(Vehicle));
     Vehicle_init(vehicle, &w, id, playerTexture);
     World_addVehicle(&w, vehicle);
@@ -185,6 +186,7 @@ void * player_handler(void * arg) {
                 imagePacket->image = p->texture;
                 imagePacket->header = packetHeader;
                 buf_size = Packet_serialize(buf, &(imagePacket->header));
+                printf("[PLAYER HANDLER THREAD ID %d] Sending texture of %d to %d\n", id, id, p->id);
                 while((ret = send(socket_desc, buf, buf_size, 0)) < 0) {
                     if(ret == 0) {
                         printf("[PLAYER HANDLER THREAD ID %d] Player %d quit the game\n", id, id);
@@ -230,14 +232,14 @@ void * delete_players_thread(void * args) {
 
         Player * p = players->first;
 
-        //ret = sem_wait(&sem_players_list_UDP);
-        //ERROR_HELPER(ret, "[DELETE PLAYER THREAD] Error sem wait");
+        ret = sem_wait(&sem_players_list_UDP);
+        ERROR_HELPER(ret, "[DELETE PLAYER THREAD] Error sem wait");
         //ret = sem_wait(&sem_players_list_TCP);
         //ERROR_HELPER(ret, "[DELETE PLAYER THREAD] Error sem wait");
 
         while(p != NULL) {
 
-            if(p->last_packet_timestamp < timestamp - 250) {
+            if(p->last_packet_timestamp < timestamp - 500) {
 
                 Vehicle * to_remove = World_getVehicle(&w, p->id);
                 int tmpid = p->id;
@@ -253,8 +255,8 @@ void * delete_players_thread(void * args) {
 
         }
 
-        //ret = sem_post(&sem_players_list_UDP);
-        //ERROR_HELPER(ret, "[DELETE PLAYER THREAD] Error sem wait");
+        ret = sem_post(&sem_players_list_UDP);
+        ERROR_HELPER(ret, "[DELETE PLAYER THREAD] Error sem wait");
         //ret = sem_post(&sem_players_list_TCP);
         //ERROR_HELPER(ret, "[DELETE PLAYER THREAD] Error sem wait");
 
@@ -279,8 +281,8 @@ void * update_sender_thread_func(void * args) {
         ClientUpdate * updates = malloc(sizeof(ClientUpdate)*(players->n));
         int i = 0;
 
-        //ret = sem_wait(&sem_players_list_UDP);
-        //ERROR_HELPER(ret, "Error sem wait");
+        ret = sem_wait(&sem_players_list_UDP);
+        ERROR_HELPER(ret, "Error sem wait");
 
         while(p != NULL) {
 
@@ -317,8 +319,8 @@ void * update_sender_thread_func(void * args) {
 
         }
 
-        //ret = sem_post(&sem_players_list_UDP);
-        //ERROR_HELPER(ret, "Error sem wait");
+        ret = sem_post(&sem_players_list_UDP);
+        ERROR_HELPER(ret, "Error sem wait");
 
         usleep(30000);
 
@@ -411,8 +413,8 @@ int main(int argc, char **argv) {
 
     //ret = sem_init(&sem_players_list_TCP, NULL, 1);
     //ERROR_HELPER(ret, "Error sem init");
-    //ret = sem_init(&sem_players_list_UDP, NULL, 1);
-    //ERROR_HELPER(ret, "Error sem init");
+    ret = sem_init(&sem_players_list_UDP, NULL, 1);
+    ERROR_HELPER(ret, "Error sem init");
 
     PlayersList * players = players_list_new();
     int udp_socket = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
