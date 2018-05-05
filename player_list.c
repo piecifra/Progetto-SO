@@ -51,6 +51,15 @@ Player * player_list_find(PlayersList * p, int id) {
 void player_list_delete(PlayersList * p, int id) {
 
     if(p == NULL) return;
+
+    if(p->first->id == id) {
+        Player * to_delete = p->first;
+        p->first = p->first->next;
+        free(to_delete);
+        p->n = p->n - 1;
+        return;
+    }
+
     Player ** pl = &(p->first);
     while(*pl != NULL && (*pl)->next != NULL && (*pl)->next->id != id) pl = &((*pl)->next);
     if((*pl)->next == NULL) return;
@@ -67,6 +76,7 @@ void player_list_print(PlayersList * p) {
 
     if(p->n == 0) printf("No Players\n");
     else {
+        printf("Players: %d\n", p->n);
         Player * pl = p->first;
         while(pl != NULL) {
             printf("Player %d in game\n", pl->id);
@@ -91,7 +101,7 @@ void player_list_free_aux(Player * p) {
 void player_list_free(PlayersList * p) {
 
     if(p == NULL) return;
-    player_list_free_aux(p->first);
+    if(p->first != NULL) player_list_free_aux(p->first);
     free(p);
     return;
 

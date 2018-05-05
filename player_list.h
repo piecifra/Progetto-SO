@@ -11,6 +11,7 @@ typedef struct Position {
 
 typedef struct Player {
     int id;
+    int last_packet_timestamp;
     char new[MAX_PLAYERS];
     Position position;
     Image * texture;

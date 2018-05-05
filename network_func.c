@@ -24,7 +24,6 @@ void recv_packet_TCP(int socket_desc, char buf[]) {
     //PacketHeader recived
 
     left_bytes = ((PacketHeader *) buf)->size - 8;
-    printf("RECV FUNC: Incoming packet of %d bytes\n", left_bytes);
     recived_bytes = 0;
     while(left_bytes > 0) {
         while((ret = recv(socket_desc, tmp + 8 + recived_bytes, left_bytes, 0)) < 0) {
@@ -35,8 +34,6 @@ void recv_packet_TCP(int socket_desc, char buf[]) {
         left_bytes -= ret;
         recived_bytes += ret;
     }
-
-    printf("RECV FUNC: Recived %d bytes, left %d\n", recived_bytes, left_bytes);
 
     //Full packet recived
 
