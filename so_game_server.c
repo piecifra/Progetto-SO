@@ -30,7 +30,7 @@
 #include "network_func.h"
 
 int id_counter = 1;
-int timestamp = 0;
+long timestamp = 0;
 World w;
 
 sem_t sem_players_list_TCP, sem_players_list_UDP;
@@ -64,17 +64,16 @@ typedef struct {
     int id;
     PlayersList * Players;
 
-} player_handler_args;
+} TCP_session_thread_args;
 
 
-void * player_handler(void * arg) {
+void * TCP_session_thread(void * arg) {
 
-    player_handler_args * args = (player_handler_args *)arg;
+    TCP_session_thread_args * args = (TCP_session_thread_args *)arg;
     int socket_udp = args->socket_udp;
     int socket_desc = args->socket_desc;
     int id = args->id;
     struct sockaddr_in * client_addr = args->client_addr;
-    struct sockaddr_in * client_addr_udp = args->client_addr_udp;
     int client_addr_len = sizeof(*client_addr);
     Image * surfaceTexture = args->SurfaceTexture;
     Image * elevationTexture = args->ElevationTexture;
@@ -103,16 +102,15 @@ void * player_handler(void * arg) {
 
     //Send id to client
     PacketHeader packetHeader;
-    IdPacket * idPacket = malloc(sizeof(IdPacket));
+    IdPacket idPacket;
     packetHeader.type = GetId;
-    idPacket->id = id;
-    idPacket->header = packetHeader;
-    int buf_size = Packet_serialize(buf, &(idPacket->header));
+    idPacket.id = id;
+    idPacket.header = packetHeader;
+    int buf_size = Packet_serialize(buf, &(idPacket.header));
     while((ret = send(socket_desc, buf, buf_size, 0)) < 0) {
         if (errno == EINTR) continue;
         ERROR_HELPER(-1, "[PLAYER HANDLER THREAD] Cannot write to socket");
     }
-    //free(idPAcket)?
     printf("[PLAYER HANDLER THREAD] ID sended %d\n", id);
 
     //Recive texture from client
@@ -130,11 +128,11 @@ void * player_handler(void * arg) {
 
     //Send SurfaceTexture to Client
     packetHeader.type = PostTexture;
-    ImagePacket * imagePacket = malloc(sizeof(ImagePacket));
-    imagePacket->header = packetHeader;
-    imagePacket->id = 0;
-    imagePacket->image = surfaceTexture;
-    buf_size = Packet_serialize(buf, &(imagePacket->header));
+    ImagePacket imagePacket;
+    imagePacket.header = packetHeader;
+    imagePacket.id = 0;
+    imagePacket.image = surfaceTexture;
+    buf_size = Packet_serialize(buf, &(imagePacket.header));
     while((ret = send(socket_desc, buf, buf_size, 0)) < 0) {
         if (errno == EINTR) continue;
         ERROR_HELPER(-1, "[PLAYER HANDLER THREAD] Cannot write to socket");
@@ -144,17 +142,15 @@ void * player_handler(void * arg) {
 
     //Send ElevationTexture to Client
     packetHeader.type = PostElevation;
-    imagePacket = malloc(sizeof(ImagePacket));
-    imagePacket->header = packetHeader;
-    imagePacket->id = 0;
-    imagePacket->image = elevationTexture;
-    buf_size = Packet_serialize(buf, &(imagePacket->header));
+    imagePacket.header = packetHeader;
+    imagePacket.id = 0;
+    imagePacket.image = elevationTexture;
+    buf_size = Packet_serialize(buf, &(imagePacket.header));
     while((ret = send(socket_desc, buf, buf_size, 0)) < 0) {
         if (errno == EINTR) continue;
         ERROR_HELPER(-1, "[PLAYER HANDLER THREAD] Cannot write to socket");
     }
     printf("[PLAYER HANDLER THREAD ID %d] ElevationTexture sent to ID %d\n", id, id);
-    free(imagePacket);
 
 
     while(1) {
@@ -172,7 +168,7 @@ void * player_handler(void * arg) {
         }
 
         Player * p = players->first;
-        ImagePacket * imagePacket = malloc(sizeof(ImagePacket));
+        ImagePacket imagePacket;
 
         while(p != NULL) {
 
@@ -182,28 +178,25 @@ void * player_handler(void * arg) {
 
                 p->new[id] = 0;
                 packetHeader.type = PostTexture;
-                imagePacket->id = p->id;
-                imagePacket->image = p->texture;
-                imagePacket->header = packetHeader;
-                buf_size = Packet_serialize(buf, &(imagePacket->header));
+                imagePacket.id = p->id;
+                imagePacket.image = p->texture;
+                imagePacket.header = packetHeader;
+                buf_size = Packet_serialize(buf, &(imagePacket.header));
                 printf("[PLAYER HANDLER THREAD ID %d] Sending texture of %d to %d\n", id, id, p->id);
                 while((ret = send(socket_desc, buf, buf_size, 0)) < 0) {
-                    if(ret == 0) {
+                    if(ret <= 0) {
                         printf("[PLAYER HANDLER THREAD ID %d] Player %d quit the game\n", id, id);
                         printf("[PLAYER HANDLER THREAD ID %d] Exiting\n", id, id);
                         close(socket_desc);
-                        player_list_delete(players, id);
                         pthread_exit(NULL);
                     }
                     if(errno == EINTR) continue;
-                    ERROR_HELPER(ret, "[PLAYER HANDLER THREAD] Cannot send");
                 }
 
             }
             p = p->next;
 
         }
-        free(imagePacket);
         //ret = sem_post(&sem_players_list_TCP);
         //ERROR_HELPER(ret, "[PLAYER HANDLER THREAD] Error sem wait");
 
@@ -219,6 +212,7 @@ void * player_handler(void * arg) {
     ret = close(socket_desc);
     ERROR_HELPER(ret, "[PLAYER HANDLER THREAD] Cannot close socket for incoming connection");
 
+    printf("[PLAYER HANDLER THREAD] exiting\n");
     pthread_exit(NULL);
 
 }
@@ -239,14 +233,15 @@ void * delete_players_thread(void * args) {
 
         while(p != NULL) {
 
-            if(p->last_packet_timestamp < timestamp - 500) {
+            if(p->last_packet_timestamp < timestamp - 1200) {
 
                 Vehicle * to_remove = World_getVehicle(&w, p->id);
                 int tmpid = p->id;
                 World_detachVehicle(&w, to_remove);
                 Vehicle_destroy(to_remove);
+                free(to_remove);
                 player_list_delete(players, p->id);
-                printf("[DELETE PLAYER THREAD] Player %d quit game, players are now %d\n", tmpid, players->n);
+                printf("[DELETE PLAYER THREAD] Player %d quit game, players are now %d, ts %d\n", tmpid, players->n, timestamp);
                 break;
 
             }
@@ -268,7 +263,7 @@ void * delete_players_thread(void * args) {
 
 void * update_sender_thread_func(void * args) {
 
-    player_handler_args * arg = (player_handler_args *) args;
+    TCP_session_thread_args * arg = (TCP_session_thread_args *) args;
     int socket_udp = arg->socket_udp;
     PlayersList * players = arg->Players;
     char buf[1000000];
@@ -300,11 +295,11 @@ void * update_sender_thread_func(void * args) {
 
         p = players->first;
         packetHeader.type = WorldUpdate;
-        WorldUpdatePacket * worldUpdatePacket = malloc(sizeof(WorldUpdatePacket));
-        worldUpdatePacket->header = packetHeader;
-        worldUpdatePacket->num_vehicles = players->n;
-        worldUpdatePacket->updates = updates;
-        buf_size = Packet_serialize(buf, &(worldUpdatePacket->header));
+        WorldUpdatePacket worldUpdatePacket;
+        worldUpdatePacket.header = packetHeader;
+        worldUpdatePacket.num_vehicles = players->n;
+        worldUpdatePacket.updates = updates;
+        buf_size = Packet_serialize(buf, &(worldUpdatePacket.header));
 
         while(p != NULL) {
 
@@ -321,11 +316,17 @@ void * update_sender_thread_func(void * args) {
 
         ret = sem_post(&sem_players_list_UDP);
         ERROR_HELPER(ret, "Error sem wait");
+        free(updates);
 
         usleep(30000);
 
     }
 
+    printf("[UPDATE RECIVER THREAD] Exiting\n");
+
+    close(socket_udp);
+    free(args);
+    pthread_exit(NULL);
 
 
 }
@@ -333,7 +334,7 @@ void * update_sender_thread_func(void * args) {
 
 void * update_reciver_thread_func(void * args) {
 
-    player_handler_args * arg = (player_handler_args *) args;
+    TCP_session_thread_args * arg = (TCP_session_thread_args *) args;
     int socket_udp = arg->socket_udp;
     PlayersList * players = arg->Players;
     int slen, ret;
@@ -351,11 +352,17 @@ void * update_reciver_thread_func(void * args) {
             v->translational_force_update = vehicleUpdatePacket->translational_force;
             v->rotational_force_update = vehicleUpdatePacket->rotational_force;
         }
-        timestamp += 1;
+        timestamp = (timestamp + 1) % 2000000;
         p->last_packet_timestamp = timestamp;
         p->client_addr_udp = client_addr_udp;
 
     }
+
+    printf("[UPDATE RECIVER THREAD] Exiting\n");
+
+    close(socket_udp);
+    free(args);
+    pthread_exit(NULL);
 
 }
 
@@ -432,14 +439,14 @@ int main(int argc, char **argv) {
     ERROR_HELPER(ret, "[MAIN] Error bind");
     printf("[MAIN] Opened UDP socket %d\n", udp_socket);
 
-    player_handler_args * urt_arg = malloc(sizeof(player_handler_args));
+    TCP_session_thread_args * urt_arg = malloc(sizeof(TCP_session_thread_args));
     urt_arg->socket_udp = udp_socket;
     urt_arg->Players = players;
     pthread_t urt;
     pthread_create(&urt, NULL, update_reciver_thread_func, (void *) urt_arg);
     pthread_detach(urt);
 
-    player_handler_args * ust_arg = malloc(sizeof(player_handler_args));
+    TCP_session_thread_args * ust_arg = malloc(sizeof(TCP_session_thread_args));
     ust_arg->socket_udp = udp_socket;
     ust_arg->Players = players;
     pthread_t ust;
@@ -458,28 +465,24 @@ int main(int argc, char **argv) {
         client_desc = accept(socket_desc, (struct sockaddr *)client_addr, (socklen_t *)&sockaddr_len);
         if (client_desc == -1 && errno == EINTR) continue;
 
-        pthread_t session_init_thread, update_reciver_thread;
+        pthread_t session_init_thread;
 
         //Put arguments for the new thread into a buffer
-        player_handler_args * sit_arg = malloc(sizeof(player_handler_args));
+        TCP_session_thread_args * sit_arg = malloc(sizeof(TCP_session_thread_args));
 
 
         //sit thread arguments
-        size_t peeraddrlen;
-        struct sockaddr_in * si_other = malloc(sizeof(struct sockaddr_in));
-        struct sockaddr_in * client_addr_udp = malloc(sizeof(struct sockaddr_in));
 
         sit_arg->socket_desc = client_desc;
         sit_arg->socket_udp = udp_socket;
         sit_arg->client_addr = client_addr;
-        sit_arg->client_addr_udp = client_addr_udp;
         sit_arg->SurfaceTexture = surfaceTexture;
         sit_arg->ElevationTexture = elevationTexture;
         sit_arg->Players = players;
         sit_arg->id = id_counter++;
 
 
-        ret = pthread_create(&session_init_thread, NULL, player_handler, (void *)sit_arg);
+        ret = pthread_create(&session_init_thread, NULL, TCP_session_thread, (void *)sit_arg);
         ret = pthread_detach(session_init_thread);
 
 
@@ -488,7 +491,7 @@ int main(int argc, char **argv) {
 
     }
 
-
+    printf("EXITING\n");
 
     return 0;
 }
