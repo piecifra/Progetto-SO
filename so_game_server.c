@@ -29,29 +29,12 @@
 #include "player_list.h"
 #include "network_func.h"
 
-int id_counter = 1;
+int id_counter = 1, players_counter = 0;
+char free_id[MAX_PLAYERS] = { 1 };
 long timestamp = 0;
 World w;
 
 sem_t sem_players_list_TCP, sem_players_list_UDP;
-
-typedef struct {
-  volatile int run;
-  World* w;
-} UpdaterArgs;
-
-// this is the updater threas that takes care of refreshing the agent position
-// in your client it is not needed, but you will
-// have to copy the x,y,theta fields from the world update packet
-// to the vehicles having the corrsponding id
-void* updater_thread(void* args_){
-  UpdaterArgs* args=(UpdaterArgs*)args_;
-  while(args->run){
-    World_update(args->w);
-    usleep(30000);
-  }
-  return 0;
-}
 
 typedef struct {
 
@@ -182,8 +165,8 @@ void * TCP_session_thread(void * arg) {
                 imagePacket.image = p->texture;
                 imagePacket.header = packetHeader;
                 buf_size = Packet_serialize(buf, &(imagePacket.header));
-                printf("[PLAYER HANDLER THREAD ID %d] Sending texture of %d to %d\n", id, id, p->id);
-                while((ret = send(socket_desc, buf, buf_size, 0)) < 0) {
+                printf("[PLAYER HANDLER THREAD ID %d] Sending texture of %d to %d\n", id, p->id, id);
+                while((ret = send(socket_desc, buf, buf_size, MSG_NOSIGNAL)) < 0) {
                     if(ret <= 0) {
                         printf("[PLAYER HANDLER THREAD ID %d] Player %d quit the game\n", id, id);
                         printf("[PLAYER HANDLER THREAD ID %d] Exiting\n", id, id);
@@ -241,6 +224,7 @@ void * delete_players_thread(void * args) {
                 Vehicle_destroy(to_remove);
                 free(to_remove);
                 player_list_delete(players, p->id);
+                free_id[tmpid] = 1;
                 printf("[DELETE PLAYER THREAD] Player %d quit game, players are now %d, ts %d\n", tmpid, players->n, timestamp);
                 break;
 
@@ -266,7 +250,7 @@ void * update_sender_thread_func(void * args) {
     TCP_session_thread_args * arg = (TCP_session_thread_args *) args;
     int socket_udp = arg->socket_udp;
     PlayersList * players = arg->Players;
-    char buf[1000000];
+    char buf[10000];
     PacketHeader packetHeader;
     printf("[UPDATE SENDER THREAD] Start sending updates\n");
     int ret, buf_size;
@@ -322,10 +306,11 @@ void * update_sender_thread_func(void * args) {
 
     }
 
-    printf("[UPDATE RECIVER THREAD] Exiting\n");
+    printf("[UPDATE SENDER THREAD] Exiting\n");
 
     close(socket_udp);
     free(args);
+    //free(buf);
     pthread_exit(NULL);
 
 
@@ -339,7 +324,7 @@ void * update_reciver_thread_func(void * args) {
     PlayersList * players = arg->Players;
     int slen, ret;
     struct sockaddr_in client_addr_udp;
-    char buf[1000000];
+    char buf[100000];
     printf("[UPDATE RECIVER TREAD] Start recivng updates\n");
     while(1) {
 
@@ -355,6 +340,7 @@ void * update_reciver_thread_func(void * args) {
         timestamp = (timestamp + 1) % 2000000;
         p->last_packet_timestamp = timestamp;
         p->client_addr_udp = client_addr_udp;
+        World_update(&w);
 
     }
 
@@ -382,14 +368,9 @@ int main(int argc, char **argv) {
     int socket_desc, client_desc;
 
     World_init(&w, surfaceTexture, elevationTexture,  0.5, 0.5, 0.5);
-    pthread_t runner_thread;
-    pthread_attr_t runner_attrs;
-    UpdaterArgs runner_args={
-    .run=1,
-    .w=&w
-    };
-    pthread_attr_init(&runner_attrs);
-    pthread_create(&runner_thread, &runner_attrs, updater_thread, &runner_args);
+
+    memset(free_id, 1, MAX_PLAYERS*sizeof(char));
+
 
     // some fields are required to be filled with 0
     struct sockaddr_in server_addr = {0};
@@ -416,7 +397,7 @@ int main(int argc, char **argv) {
     // we allocate client_addr dynamically and initialize it to zero
     struct sockaddr_in *client_addr = calloc(1, sizeof(struct sockaddr_in));
 
-
+    printf("sizeof updates %d\n", sizeof(ClientUpdate));
 
     //ret = sem_init(&sem_players_list_TCP, NULL, 1);
     //ERROR_HELPER(ret, "Error sem init");
@@ -479,8 +460,22 @@ int main(int argc, char **argv) {
         sit_arg->SurfaceTexture = surfaceTexture;
         sit_arg->ElevationTexture = elevationTexture;
         sit_arg->Players = players;
-        sit_arg->id = id_counter++;
 
+        int i = 0;
+        while(free_id[i] == 0) {
+            i++;
+            if(i == MAX_PLAYERS) break;
+        }
+        if(i == MAX_PLAYERS) {
+            printf("MAX PLAYERS");
+            continue;
+        }
+
+        free_id[i] = 0;
+        sit_arg->id = i;
+        id_counter++;
+
+        printf("[MAIN] Creating session with ID %d\n", i);
 
         ret = pthread_create(&session_init_thread, NULL, TCP_session_thread, (void *)sit_arg);
         ret = pthread_detach(session_init_thread);
