@@ -81,8 +81,6 @@ void * TCP_session_thread(void * arg) {
     if(deserialized_packet->id == -1) printf("[PLAYER HANDLER THREAD ID %d] Request recived.\n", id);
 
 
-
-
     //Send id to client
     PacketHeader packetHeader;
     IdPacket idPacket;
@@ -104,7 +102,6 @@ void * TCP_session_thread(void * arg) {
 
     //Insert player in list
     player_list_insert(players, id, playerTexture);
-    player_list_print(players);
     Vehicle * vehicle=(Vehicle*) malloc(sizeof(Vehicle));
     Vehicle_init(vehicle, &w, id, playerTexture);
     World_addVehicle(&w, vehicle);
@@ -225,7 +222,8 @@ void * delete_players_thread(void * args) {
                 free(to_remove);
                 player_list_delete(players, p->id);
                 free_id[tmpid] = 1;
-                printf("[DELETE PLAYER THREAD] Player %d quit game, players are now %d, ts %d\n", tmpid, players->n, timestamp);
+                players_counter -= 1;
+                printf("[DELETE PLAYER THREAD] Player %d quit game, players are now %d\n", tmpid, players->n);
                 break;
 
             }
@@ -250,7 +248,7 @@ void * update_sender_thread_func(void * args) {
     TCP_session_thread_args * arg = (TCP_session_thread_args *) args;
     int socket_udp = arg->socket_udp;
     PlayersList * players = arg->Players;
-    char buf[10000];
+    char buf[100000];
     PacketHeader packetHeader;
     printf("[UPDATE SENDER THREAD] Start sending updates\n");
     int ret, buf_size;
@@ -261,7 +259,7 @@ void * update_sender_thread_func(void * args) {
         int i = 0;
 
         ret = sem_wait(&sem_players_list_UDP);
-        ERROR_HELPER(ret, "Error sem wait");
+        ERROR_HELPER(ret, "[UPDATE SENDER THREAD] Error sem wait");
 
         while(p != NULL) {
 
@@ -299,7 +297,7 @@ void * update_sender_thread_func(void * args) {
         }
 
         ret = sem_post(&sem_players_list_UDP);
-        ERROR_HELPER(ret, "Error sem wait");
+        ERROR_HELPER(ret, "[UPDATE SENDER THREAD] Error sem wait");
         free(updates);
 
         usleep(30000);
@@ -310,7 +308,6 @@ void * update_sender_thread_func(void * args) {
 
     close(socket_udp);
     free(args);
-    //free(buf);
     pthread_exit(NULL);
 
 
@@ -397,10 +394,7 @@ int main(int argc, char **argv) {
     // we allocate client_addr dynamically and initialize it to zero
     struct sockaddr_in *client_addr = calloc(1, sizeof(struct sockaddr_in));
 
-    printf("sizeof updates %d\n", sizeof(ClientUpdate));
 
-    //ret = sem_init(&sem_players_list_TCP, NULL, 1);
-    //ERROR_HELPER(ret, "Error sem init");
     ret = sem_init(&sem_players_list_UDP, NULL, 1);
     ERROR_HELPER(ret, "Error sem init");
 
@@ -418,7 +412,7 @@ int main(int argc, char **argv) {
 
     ret = bind(udp_socket, &si_me, sizeof(si_me));
     ERROR_HELPER(ret, "[MAIN] Error bind");
-    printf("[MAIN] Opened UDP socket %d\n", udp_socket);
+    printf("[MAIN] Opened UDP socket\n");
 
     TCP_session_thread_args * urt_arg = malloc(sizeof(TCP_session_thread_args));
     urt_arg->socket_udp = udp_socket;
@@ -442,6 +436,8 @@ int main(int argc, char **argv) {
 
     //Start Listening for new players
     while(1) {
+
+        while(players_counter == MAX_PLAYERS);
 
         client_desc = accept(socket_desc, (struct sockaddr *)client_addr, (socklen_t *)&sockaddr_len);
         if (client_desc == -1 && errno == EINTR) continue;
@@ -467,13 +463,14 @@ int main(int argc, char **argv) {
             if(i == MAX_PLAYERS) break;
         }
         if(i == MAX_PLAYERS) {
-            printf("MAX PLAYERS");
+            printf("[MAIN] Players limit reached\n");
             continue;
         }
 
         free_id[i] = 0;
         sit_arg->id = i;
         id_counter++;
+        players_counter++;
 
         printf("[MAIN] Creating session with ID %d\n", i);
 
@@ -486,7 +483,7 @@ int main(int argc, char **argv) {
 
     }
 
-    printf("EXITING\n");
+    printf("[MAIN] EXITING\n");
 
     return 0;
 }
