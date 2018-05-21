@@ -133,6 +133,7 @@ void * TCP_session_thread(void * arg) {
     printf("[PLAYER HANDLER THREAD ID %d] ElevationTexture sent to ID %d\n", id, id);
 
 
+
     while(1) {
 
         int i = 0;
@@ -214,6 +215,13 @@ void * delete_players_thread(void * args) {
         while(p != NULL) {
 
             if(p->last_packet_timestamp < timestamp - 1200) {
+
+                Player * pd = players->first;
+                while(pd != NULL) {
+
+                    pd->new[p->id] = 1;
+                    pd = pd->next;
+                }
 
                 Vehicle * to_remove = World_getVehicle(&w, p->id);
                 int tmpid = p->id;
